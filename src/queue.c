@@ -1,6 +1,6 @@
 /*
-	In questa libreria ho messo le funzioni per la gestione di code di interi
-	implementate con array circolari ridimensionabili
+	In questa libreria ho messo le funzioni per la gestione di code di stringhe
+	implementate con array circolari di dimensione fissa.
 */
 
 
@@ -48,9 +48,9 @@ new_queue(int dim)
 		return NULL;
 	}
 	new->num_clear = 1;
-    pthread_mutex_init(&new->mtx, NULL);
-    pthread_cond_init(&new->empty, NULL);
-    pthread_cond_init(&new->full, NULL);
+    pthread_mutex_init(&(new->mtx), NULL);
+    pthread_cond_init(&(new->empty), NULL);
+    pthread_cond_init(&(new->full), NULL);
 
 	RE_SET( new, que, dim, que, que, 0, 0);
 	return new;
@@ -89,9 +89,9 @@ insert(queue_t *coda, char *elem)
 {
 	errno = 0;
 
-    pthread_mutex_lock(&coda->mtx);
+    pthread_mutex_lock(&(coda->mtx));
     while(coda->num_el == coda->dim){
-        pthread_cond_wait(&coda->full , &coda->mtx);
+        pthread_cond_wait(&(coda->full) , &(coda->mtx));
     }
 
 	/* inserisco l'elemento */
@@ -106,8 +106,8 @@ insert(queue_t *coda, char *elem)
 	coda->last =
 		( coda->last == (coda->q)+(coda->dim)-1 ) ? coda->q : (coda->last)+1;
     
-    pthread_cond_signal(&coda->empty);
-    pthread_mutex_unlock(&coda->mtx);
+    pthread_cond_signal(&(coda->empty));
+    pthread_mutex_unlock(&(coda->mtx));
 	
 	return 1;
 }
@@ -121,31 +121,33 @@ char*
 extract(queue_t *coda)
 {
 	errno = 0;
-    pthread_mutex_lock(&coda->mtx);
+    pthread_mutex_lock(&(coda->mtx));
 
 	
     while(coda->num_el == 0 && coda->stop == 0){
-        pthread_cond_wait(&coda->empty, &coda->mtx);
+        pthread_cond_wait(&(coda->empty), &(coda->mtx));
     }
     
 	
 	if(coda->num_el != 0){
 
 		char *x = *(coda->first);
+
 		(coda->clear)[coda->num_clear-1] = x;
 		coda->num_clear++;
 		coda->clear = realloc(coda->clear, coda->num_clear * sizeof(char*));
 		(coda->clear)[coda->num_clear-1] = NULL;
+
 		(coda->num_el)--;
 		coda->first =
 			( coda->first == (coda->q)+(coda->dim)-1 ) ? coda->q : (coda->first)+1;
 
-		pthread_cond_signal(&coda->full);
-		pthread_mutex_unlock(&coda->mtx);
+		pthread_cond_signal(&(coda->full));
+		pthread_mutex_unlock(&(coda->mtx));
 		return x;
 
 	}else if(coda->stop == 1){	
-		pthread_mutex_unlock(&coda->mtx);
+		pthread_mutex_unlock(&(coda->mtx));
 		return "stop";
 	}
 
