@@ -7,21 +7,21 @@
 #include <sys/stat.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "master.h"
 #include "MasterWorker.h"
 
 #define UNIX_PATH_MAX 108
-#define SOCKNAME "./farm.sck"
+#define SOCKNAME "farm.sck"
 
 #define SYSCALL(r,c,e)\
 	if((r=c)==-1){perror(e);exit(errno); }
 
 
-int fd_skt;
 
 
-
+//Funzione che ricerca ricorsivamente nella directory passata come argomento path ed inserisce in files ogni nome file regolare trovato
 int show_dir_content( char* path, int depth){
     char buf[PATH_MAX];
     struct stat s;
@@ -106,8 +106,8 @@ int show_dir_content( char* path, int depth){
 
 }
 
+//Funzione usata dal main per avviare il thread master, inserisce in coda dim_files nomi di file oppure si ferma per la ricezione di un segnale
 void * master(void * arg){
-
     struct timespec ts;
     int res;
 
@@ -130,7 +130,8 @@ void * master(void * arg){
     ts.tv_sec = delay/1000;
     ts.tv_nsec = (delay % 1000) * 1000000;
     if(directory) show_dir_content(directory, 0);
-    for (size_t i = 0; i < dim_files; i++)
+    int i = 0;
+    while(stop == 0 && i < dim_files)
     {
         if(i != 0){
             do{
@@ -139,15 +140,15 @@ void * master(void * arg){
         }
 
         insert(coda, files[i]);
+        i++;
     }
 
-    
-    
+
     pthread_mutex_lock(&coda->mtx);
     coda->stop = 1;
+    //Broadcast usata per svegliare tutti i thread worker in attesa sulla variabile di condizione nella funzione extract della coda
     pthread_cond_broadcast(&coda->empty);
     pthread_mutex_unlock(&coda->mtx);
-    
     
 
     

@@ -1,5 +1,5 @@
 
-
+#include <pthread.h>
 #ifndef __BOOL__
 #define __BOOL__
 typedef enum { FALSE, TRUE } bool;

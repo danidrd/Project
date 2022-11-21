@@ -3,7 +3,6 @@
 #include <pthread.h>
 #include <string.h>
 #include <unistd.h>
-#include <signal.h>
 #include <sys/types.h>
 #include <errno.h>
 
@@ -17,10 +16,9 @@
 
 
 
-static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
+//Funzione worker usata dal main per creare un thread worker, si ferma appena riceve la stringa "stop" come valore di ritorno dalla extract
 void * worker(void *arg){
-
 
 
     char *str;
@@ -35,7 +33,10 @@ void * worker(void *arg){
             long content;
             long result = 0;
             long i = 0;
-            if(!ifp) continue;
+            if(!ifp){
+                perror("fread");
+                exit(EXIT_FAILURE);
+            }
             int bytes;
           
             while((bytes = fread((void*)&content, sizeof(long), 1, ifp)) > 0){
@@ -71,8 +72,11 @@ void * worker(void *arg){
 
     }
     pthread_mutex_lock(&mtx);
-    kill(pid, 12);
+    fine++;
     pthread_mutex_unlock(&mtx);
+    if(fine == num_threads) close(fd_skt);
+    
+
     
 
 }

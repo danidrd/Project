@@ -14,63 +14,27 @@
 #include <pthread.h>
 
 
+#include "collector.h"
 
-#define SOCKNAME "./farm.sck"
+#define SOCKNAME "farm.sck"
 #define UNIX_PATH_MAX 108
 
-volatile sig_atomic_t worker;
+#define ec_meno1(s,m)\
+	if( (s) == -1){perror(m);exit(EXIT_FAILURE);}
+
+int workers; //Variabile che rappresenta il numero di worker presenti nel processo farm, appena è 1 il processo collector stampa i risultati
 
 
-
+//Struttura usata dalla funzione run_server per implementare un array di coppie <valore, filename>
 typedef struct pair{
     long val;
     char *filename;
 }pair;
 
-pair **pairs;
-int dim_pairs=1;
+pair **pairs; //Array di coppie
+int dim_pairs=1; //Dimensione dell'array pairs
 
-static void *sigHandler(void *arg){
-	sigset_t *set = ((sigset_t*)arg);
-
-	for( ;; ){
-		int sig;
-		int r = sigwait(set,&sig);
-
-		if(r != 0){
-			errno = r;
-			perror("sigwait");
-			return NULL;
-		}
-
-		switch(sig){
-            case SIGUSR2:{
-                if(worker == 1){
-
-                    for (size_t i = 0; i < dim_pairs; i++)
-                    {
-                        char *buf = calloc(sizeof(char), 100);
-                        sprintf(buf, "%li ", pairs[i]->val);
-                        buf = strcat(buf, pairs[i]->filename);
-                        buf = strcat(buf, "\n");
-                        write(1, buf, strlen(buf));
-                        //fprintf(stdout, "%li %s\n", pairs[i]->val, pairs[i]->filename);
-                        free(buf);
-                    }
-                    
-                }else {
-                    worker--;
-                }
-            }break;
-			default: ;
-		}
-
-	}
-
-	return NULL;
-}
-
-
+//Funzione che restituisce l'ultimo file descriptor settato nel fd_set 
 int aggiorna(fd_set *set, int max){
     for (size_t i = 0; i < max; i++)
     {
@@ -80,7 +44,8 @@ int aggiorna(fd_set *set, int max){
     }
     
 }
-
+//Funzione che implementa la gestione dei file descriptor tramite la select, riceve le stringhe "valore filename" dai worker
+//e le inserisce in modo ordinato nella struttura pair
 void run_server(struct sockaddr_un *psa){
     int fd_sk, fd_c, fd_num = 0, fd;
     fd_set set,rdset; int nread;
@@ -91,7 +56,7 @@ void run_server(struct sockaddr_un *psa){
     FD_ZERO(&set);
     FD_SET(fd_sk, &set);
 
-    while(1){
+    while(workers != 0){
         rdset = set;
         if(select(fd_num +1, &rdset, NULL, NULL, NULL) == -1){
             perror("select");
@@ -105,20 +70,52 @@ void run_server(struct sockaddr_un *psa){
                         if(fd_c > fd_num) fd_num = fd_c;
 
                     }else{
+
                         char buf[100];
                         nread = read(fd,buf,100);
                         if(nread==0){
                             FD_CLR(fd, &set);
                             fd_num = aggiorna(&set, fd_num);
+                            workers--;
                             close(fd);
                         }else{
+                            if(strncmp(buf,"print",5) == 0){
+
+                                for (size_t i = 0; i < dim_pairs-1; i++)
+                                {
+                                    char *buf2 = calloc(sizeof(char), 100);
+                                    if(!buf2){
+                                        perror("calloc");
+                                        exit(EXIT_FAILURE);
+                                    }
+                                    sprintf(buf2, "%li ", pairs[i]->val);
+                                    buf2 = strcat(buf2, pairs[i]->filename);
+                                    buf2 = strcat(buf2, "\n");
+                                    if(write(1, buf2, strlen(buf2)) == -1){
+                                        perror("malloc");
+                                        exit(EXIT_FAILURE);
+                                    }
+                                    free(buf2);
+                                    
+                                }
+                                continue;
+
+                            }
                             char* token = strtok(buf, " ");
                             int i=0;
                             int j = 0;
                             pairs[dim_pairs-1] = malloc(sizeof(pair));
+                            if(!pairs[dim_pairs-1]){
+                                perror("malloc");
+                                exit(EXIT_FAILURE);
+                            }
                             while(token) {
                                 if(i==0){
                                     long val = atol(token);
+                                    if(val == 0){
+                                        fprintf(stderr, "Error on atol function\n");
+                                        exit(EXIT_FAILURE);
+                                    }
                                     for (j = 0; j < dim_pairs; j++)
                                     {
                                         if(j==dim_pairs-1)break;
@@ -143,10 +140,18 @@ void run_server(struct sockaddr_un *psa){
                                         }
 
                                         pairs[j]->filename = malloc(strlen(token)+1);
+                                        if(!pairs[j]->filename){
+                                            perror("malloc");
+                                            exit(EXIT_FAILURE);
+                                        }
                                         pairs[j]->filename = strcpy(pairs[j]->filename,token);
                                     }
                                     else {
                                         pairs[dim_pairs-1]->filename = malloc(strlen(token)+1);
+                                        if(!pairs[dim_pairs-1]){
+                                            perror("malloc");
+                                            exit(EXIT_FAILURE);
+                                        }
                                         pairs[dim_pairs-1]->filename = strcpy(pairs[dim_pairs-1]->filename,token);
                                     }
                                 }
@@ -156,53 +161,72 @@ void run_server(struct sockaddr_un *psa){
 
                             dim_pairs++;
                             pairs = realloc(pairs, sizeof(pair*)* dim_pairs);
+                            if(!pairs){
+                                perror("malloc");
+                                exit(EXIT_FAILURE);
+                            }
                         }
                     }
                 }
             }
         }
     }
+    close(fd_sk);
+    return;
 }
 
 
 
-int main(int argc, char *argv[]){
-    if(argc != 2){
-        fprintf(stderr, "usage: %s num_threads\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
+int collector(char *arg){
+    workers = 1;
 
-    worker = atoi(argv[1]);
+    struct sigaction s;
+	memset( &s, 0, sizeof(s));
+	s.sa_handler=SIG_IGN;
+	ec_meno1(sigaction(SIGINT,&s,NULL),"sigaction");
+	ec_meno1(sigaction(SIGQUIT,&s,NULL),"sigaction");
+    ec_meno1(sigaction(SIGHUP,&s,NULL),"sigaction");
+	ec_meno1(sigaction(SIGTERM,&s,NULL),"sigaction");
+	ec_meno1(sigaction(SIGUSR1,&s,NULL),"sigaction");
 
-    sigset_t mask;
-	sigemptyset(&mask);
-	sigaddset(&mask, SIGUSR2);
+	ec_meno1(sigaction(SIGPIPE,&s,NULL),"sigaction");
 
 
-	if(pthread_sigmask(SIG_SETMASK,&mask,NULL) != 0){
-		fprintf(stderr, "FATAL ERROR\n");
-		exit(EXIT_FAILURE);
-	}
 
-    pthread_t sighandler_thread;
 
-    if(pthread_create(&sighandler_thread,NULL,sigHandler,&mask) != 0){
-		fprintf(stderr, "Error while creating the signal handler thread\n");
-        exit(EXIT_FAILURE);
-	}
+
 
     struct sockaddr_un sa;
     strcpy(sa.sun_path, SOCKNAME);
     sa.sun_family = AF_UNIX;
     pairs = malloc(sizeof(pair*));
-    run_server(&sa);
-    pairs = realloc(pairs, sizeof(pair)*(dim_pairs-1));
- 
-        
-    if(pthread_join(sighandler_thread, NULL) != 0){
-        perror("join");
+    if(!pairs){
+        perror("malloc");
         exit(EXIT_FAILURE);
     }
+    run_server(&sa);
+    pairs = realloc(pairs, sizeof(pair)*(dim_pairs-1));
+    if(!pairs){
+        perror("realloc");
+        exit(EXIT_FAILURE);
+    }
+    for (size_t i = 0; i < dim_pairs-1; i++)
+    {
+        char *buf = calloc(sizeof(char), 100);
+        if(!buf){
+            perror("malloc");
+            exit(EXIT_FAILURE);
+        }
+        sprintf(buf, "%li ", pairs[i]->val);
+        buf = strcat(buf, pairs[i]->filename);
+        buf = strcat(buf, "\n");
+        if(write(1, buf, strlen(buf)) == -1){
+            perror("write");
+            exit(EXIT_FAILURE);
+        }
+        free(buf);
+    }
+
 
     for (size_t i = 0; i < dim_pairs-1; i++)
     {
@@ -210,7 +234,5 @@ int main(int argc, char *argv[]){
         free(pairs[i]);
     }
     free(pairs);
-
-    
     return 0;
 }

@@ -28,7 +28,7 @@
 
 
 /*******************************************************************************
-	Funzione che prende un intedo (dim) e crea una nuova coda
+	Funzione che prende un intero (dim) e crea una nuova coda
 	con dim posti disponibili
 *******************************************************************************/
 queue_t*
