@@ -1,1 +1,1 @@
-Operating systems project at University of Pisa
+Operating systems project for University of Pisa
